@@ -18,7 +18,6 @@ function Ths(thsFolder, socksPortNumber, controlPortNumber, torErrorHandler, tor
 	var torCommand = 'tor';
 	var torProcess; //Reference to the tor process
 	var controlClient; //Socket to the tor control port
-
 	var controlHash, controlPass;
 
 	var checkServiceName = function(serviceName){
@@ -31,6 +30,14 @@ function Ths(thsFolder, socksPortNumber, controlPortNumber, torErrorHandler, tor
 		if (bootstrapState && bootstrapState[1]) return bootstrapState[1];
 		else return undefined;
 	};
+	var extractBootstrap2 = function(line) {
+		//console.log('###', line);
+		var bootstrapPhase = {};
+		bootstrapPhase.progress = Number(line.match(/PROGRESS=(\d{1,3})/)[1]);
+		bootstrapPhase.tag = line.match(/TAG=(\w+)/)[1];
+		bootstrapPhase.summary = line.match(/SUMMARY="(.*)"/)[1];
+		return bootstrapPhase;
+	}
 
 	if (socksPortNumber && typeof socksPortNumber != 'number') throw new TypeError('When defined, socksPortNumber must be a number');
 	if (controlPortNumber && typeof controlPortNumber != 'number') throw new TypeError('When defined, controlPortNumber must be a number');
@@ -405,6 +412,40 @@ function Ths(thsFolder, socksPortNumber, controlPortNumber, torErrorHandler, tor
 						torErrorHandler(data);
 					});
 				}
+				var trackBootstrapProgress = function() {
+					var bsStatus = function() {
+						controlClient.write('GETINFO status/bootstrap-phase\r\n');
+					}
+					controlClient = net.connect({host: '127.0.0.1', port: Number(controlPort)}, function(){
+						controlClient.write('AUTHENTICATE "' + controlPass + '"\r\n');
+						setTimeout(bsStatus, 50);
+					});
+					var bootstrapProgress = 0;
+					var watchOne;
+					var processData = function(data) {
+						data = data.toString();
+						console.log('Incoming torControl Data:', data);
+						if (torControlMessageHandler) torControlMessageHandler(data.toString());
+						if (data.search(/250-status\/bootstrap-phase/) >= 0) {
+							var bootstrapPhase = extractBootstrap2(data);
+							if (bootstrapPhase.progress < 100) {
+								setTimeout(bsStatus, 250);
+							}
+							if(bootstrapPhase.progress > bootstrapProgress) {
+								self.emit('bootstrap', bootstrapPhase);
+							}
+							bootstrapProgress = bootstrapPhase.progress;
+							if (bootstrapProgress == 100) {
+								watchOne = setInterval(watchHsn('5kkml4mke6o3r4jg'), 2000);
+							}
+						}
+					}
+					controlClient.on('data', processData);
+				};
+				var watchHsn = function(hsn) {
+					controlClient.write('HSFETCH "' + hsn + '"\r\n');
+				}
+				setTimeout(trackBootstrapProgress, 10000);
 
 				torProcess.stdout.setEncoding('utf8');
 				torProcess.stdout.on('data', function(data){
@@ -427,23 +468,13 @@ function Ths(thsFolder, socksPortNumber, controlPortNumber, torErrorHandler, tor
 						if (isNaN(bootstrapState)){
 							console.error('Bootstrap state cannot be casted into a number');
 						} else {
-							self.emit('bootstrap', bootstrapState);
+							//self.emit('bootstrap', bootstrapState);
 						}
 					}
 
-					if (data.indexOf('Bootstrapped 100%') > -1) {
-						controlClient = net.connect({host: '127.0.0.1', port: Number(controlPort)}, function(){
-							controlClient.write('AUTHENTICATE "' + controlPass + '"\r\n');
-							//console.log("Tor process PID : " + torProcess.pid);
-						});
-						controlClient.on('data', function(data){
-							data = data.toString();
-							if (torControlMessageHandler) torControlMessageHandler(data.toString());
-							//if (showTorControlMessages) console.log('Message from ControlPort: ' + data);
-							//console.log('Message from ControlPort: ' + data.toString());
-						});
+					// if (data.indexOf('Bootstrapped 100%') > -1) {
 						self.emit('bootstrapped');
-					}
+					// }
 				});
 			}, torCommand);
 		}
