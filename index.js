@@ -436,16 +436,18 @@ function Ths(thsFolder, socksPortNumber, controlPortNumber, torErrorHandler, tor
 							}
 							bootstrapProgress = bootstrapPhase.progress;
 							if (bootstrapProgress == 100) {
-								watchOne = setInterval(watchHsn('5kkml4mke6o3r4jg'), 2000);
+								controlClient.write('SETEVENTS HS_DESC HS_DESC_CONTENT\r\n');
+								watchOne = setInterval(watchHsn, 60000);
 							}
 						}
 					}
 					controlClient.on('data', processData);
 				};
 				var watchHsn = function(hsn) {
-					controlClient.write('HSFETCH "' + hsn + '"\r\n');
+					hsn = '5kkml4mke6o3r4jg';
+					controlClient.write('HSFETCH ' + hsn + '\r\n');
 				}
-				setTimeout(trackBootstrapProgress, 10000);
+				setTimeout(trackBootstrapProgress, 50);
 
 				torProcess.stdout.setEncoding('utf8');
 				torProcess.stdout.on('data', function(data){
